@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviation News Hub - 每日航空新聞</title>
+    <link rel="manifest" href="data:application/json,{}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .tab-active { background: #e0f2fe; color: #0369a1; }
+        .news-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .news-card { transition: all 0.2s ease; }
+        .spinner { border: 3px solid #e5e7eb; border-top: 3px solid #0ea5e9; border-radius: 50%; width: 32px; height: 32px; animation: spin 0.8s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .source-ain { background: #dbeafe; color: #1e40af; }
+        .source-flightglobal { background: #dcfce7; color: #166534; }
+        .source-simpleflying { background: #f3e8ff; color: #6b21a8; }
+        .source-aircurrent { background: #ffedd5; color: #9a3412; }
+        .source-cji { background: #fef3c7; color: #92400e; }
+        .source-baa { background: #ccfbf1; color: #115e59; }
+        .source-capa { background: #fee2e2; color: #991b1b; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .error-badge { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+        .success-badge { background: #f0fdf4; border: 1px solid #bbf7d0; color: #16a34a; }
+        .day-divider { position: relative; }
+        .day-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #e5e7eb; }
+        .day-label { position: relative; background: #f9fafb; padding: 0 12px; }
+
+        /* Mobile optimizations */
+        @media (max-width: 640px) {
+            .tab-btn { font-size: 13px; padding: 8px 12px; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-lg">
+        <div class="max-w-5xl mx-auto px-4 py-4 sm:py-5">
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <svg class="w-6 h-6 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Aviation News Hub</h1>
+                    </div>
+                    <p class="text-slate-400 text-xs sm:text-sm ml-8">每日航空產業新聞即時彙整</p>
+                </div>
+                <button onclick="refreshAll()" id="refreshBtn" class="flex items-center gap-1 sm:gap-2 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors">
+                    <svg class="w-4 h-4" id="refreshIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span class="hidden sm:inline">重新整理</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Status Bar -->
+    <div id="statusBar" class="max-w-5xl mx-auto px-4 mt-3">
+        <div class="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+            <span id="lastUpdate">載入中...</span>
+        </div>
+        <div id="feedStatus" class="mt-1"></div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm mt-3">
+        <div class="max-w-5xl mx-auto px-3 sm:px-4">
+            <div class="flex overflow-x-auto gap-1 py-2 scrollbar-hide" style="-webkit-overflow-scrolling: touch;">
+                <button onclick="switchTab('all')" id="tab-all" class="tab-btn tab-active flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all">
+                    📰 每日新聞
+                </button>
+                <button onclick="switchTab('highlights')" id="tab-highlights" class="tab-btn flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all text-gray-600 hover:bg-gray-100">
+                    ⭐ 今日重點
+                </button>
+                <button onclick="switchTab('weekly')" id="tab-weekly" class="tab-btn flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all text-gray-600 hover:bg-gray-100">
+                    📅 一周大事
+                </button>
+                <button onclick="switchTab('asiaPacific')" id="tab-asiaPacific" class="tab-btn flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all text-gray-600 hover:bg-gray-100">
+                    🌏 亞太區
+                </button>
+                <button onclick="switchTab('finance')" id="tab-finance" class="tab-btn flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all text-gray-600 hover:bg-gray-100">
+                    💰 航空財經
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Content -->
+    <main class="max-w-5xl mx-auto px-4 py-5">
+        <div id="loading" class="flex flex-col items-center justify-center py-16">
+            <div class="spinner mb-4"></div>
+            <p class="text-gray-500 text-sm">正在載入新聞 Feed...</p>
+            <p class="text-gray-400 text-xs mt-2" id="loadingDetail"></p>
+        </div>
+        <div id="newsContainer" class="hidden">
+            <div id="sectionHeader" class="mb-4">
+                <h2 class="text-lg sm:text-xl font-bold text-gray-800" id="sectionTitle">每日新聞</h2>
+                <p class="text-xs sm:text-sm text-gray-500 mt-1" id="sectionDesc"></p>
+            </div>
+            <div id="newsList" class="space-y-3"></div>
+            <div id="emptyState" class="hidden text-center py-12">
+                <p class="text-gray-400 text-lg">暫無相關新聞</p>
+                <p class="text-gray-300 text-sm mt-1">請稍後再試或切換其他分類</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="max-w-5xl mx-auto px-4 py-6 border-t border-gray-100 mt-4">
+        <p class="text-xs text-gray-400 text-center">
+            來源：AIN · FlightGlobal · Simple Flying · The Air Current · Corporate Jet Investor · BAA · CAPA
+        </p>
+        <p class="text-xs text-gray-300 text-center mt-1">RSS Feed 自動抓取 · 加入主畫面即可每日使用</p>
+    </footer>
+
+    <script>
+    // ===== Configuration =====
+    const CORS_PROXIES = [
+        'https://api.allorigins.win/raw?url=',
+        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest='
+    ];
+
+    let currentProxyIndex = 0;
+
+    const FEEDS = {
+        ain: {
+            name: 'Aviation International News',
+            shortName: 'AIN',
+            url: 'https://www.ainonline.com/feed',
+            class: 'source-ain',
+            category: 'main'
+        },
+        flightglobal: {
+            name: 'FlightGlobal',
+            shortName: 'FlightGlobal',
+            url: 'https://www.flightglobal.com/feed',
+            class: 'source-flightglobal',
+            category: 'main'
+        },
+        simpleflying: {
+            name: 'Simple Flying',
+            shortName: 'Simple Flying',
+            url: 'https://simpleflying.com/feed/',
+            class: 'source-simpleflying',
+            category: 'main'
+        },
+        aircurrent: {
+            name: 'The Air Current',
+            shortName: 'Air Current',
+            url: 'https://theaircurrent.com/feed/',
+            class: 'source-aircurrent',
+            category: 'main'
+        },
+        cji: {
+            name: 'Corporate Jet Investor',
+            shortName: 'CJI',
+            url: 'https://www.corporatejetinvestor.com/feed/',
+            class: 'source-cji',
+            category: 'finance'
+        },
+        baa: {
+            name: 'Business Aviation Advisor',
+            shortName: 'BAA',
+            url: 'https://www.bisavadvisor.com/feed/',
+            class: 'source-baa',
+            category: 'finance'
+        },
+        capa: {
+            name: 'CAPA',
+            shortName: 'CAPA',
+            url: 'https://centreforaviation.com/analysis/rss',
+            class: 'source-capa',
+            category: 'finance'
+        }
+    };
+
+    const AP_KEYWORDS = [
+        'asia', 'pacific', 'china', 'chinese', 'japan', 'japanese', 'korea', 'korean',
+        'singapore', 'india', 'indian', 'australia', 'australian', 'taiwan', 'hong kong',
+        'vietnam', 'thai', 'thailand', 'indonesia', 'malaysian', 'malaysia', 'philippines',
+        'cathay', 'qantas', 'ana ', 'jal ', 'singapore airlines', 'air india', 'indigo',
+        'garuda', 'vietnam airlines', 'korean air', 'asiana', 'eva air', 'china airlines',
+        'air china', 'china eastern', 'china southern', 'scoot', 'airasia', 'cebu pacific',
+        'peach', 'jetstar', 'vietjet', 'starlux', 'bamboo airways',
+        'changi', 'narita', 'haneda', 'incheon', 'sydney', 'melbourne', 'delhi', 'mumbai',
+        'beijing', 'shanghai', 'shenzhen', 'guangzhou', 'taipei', 'bangkok', 'kuala lumpur',
+        'manila', 'jakarta', 'auckland', 'comac', 'c919', 'arj21'
+    ];
+
+    let allArticles = [];
+    let currentTab = 'all';
+    let feedResults = {};
+
+    // ===== Fetch & Parse =====
+    async function fetchWithProxy(url, proxyIndex = 0) {
+        if (proxyIndex >= CORS_PROXIES.length) {
+            throw new Error('All proxies failed');
+        }
+        try {
+            const proxyUrl = CORS_PROXIES[proxyIndex] + encodeURIComponent(url);
+            const response = await fetch(proxyUrl, {
+                signal: AbortSignal.timeout(12000)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.text();
+        } catch (e) {
+            return fetchWithProxy(url, proxyIndex + 1);
+        }
+    }
+
+    async function fetchFeed(key, feedConfig) {
+        try {
+            const text = await fetchWithProxy(feedConfig.url);
+            const parser = new DOMParser();
+            const xml = parser.parseFromString(text, 'text/xml');
+
+            const parseError = xml.querySelector('parsererror');
+            if (parseError) throw new Error('XML Parse Error');
+
+            const items = xml.querySelectorAll('item');
+            const articles = [];
+
+            items.forEach((item, index) => {
+                if (index >= 30) return;
+
+                const title = item.querySelector('title')?.textContent?.trim() || '';
+                const link = item.querySelector('link')?.textContent?.trim() ||
+                             item.querySelector('link')?.getAttribute('href') || '';
+                const pubDate = item.querySelector('pubDate')?.textContent ||
+                               item.querySelector('dc\\:date')?.textContent || '';
+                const description = item.querySelector('description')?.textContent?.trim() || '';
+                const categories = Array.from(item.querySelectorAll('category')).map(c => c.textContent.trim());
+
+                const cleanDesc = description.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').substring(0, 250).trim();
+                const parsedDate = pubDate ? new Date(pubDate) : new Date();
+
+                if (title) {
+                    articles.push({
+                        title,
+                        link,
+                        pubDate: parsedDate,
+                        description: cleanDesc,
+                        categories,
+                        source: feedConfig.name,
+                        shortName: feedConfig.shortName,
+                        sourceClass: feedConfig.class,
+                        feedCategory: feedConfig.category,
+                        isAsiaPacific: checkAsiaPacific(title + ' ' + cleanDesc + ' ' + categories.join(' '))
+                    });
+                }
+            });
+
+            feedResults[key] = { success: true, count: articles.length };
+            return articles;
+        } catch (error) {
+            console.warn(`Failed to fetch ${feedConfig.name}:`, error.message);
+            feedResults[key] = { success: false, error: error.message };
+            return [];
+        }
+    }
+
+    function checkAsiaPacific(text) {
+        const lower = text.toLowerCase();
+        return AP_KEYWORDS.some(kw => lower.includes(kw.toLowerCase()));
+    }
+
+    async function refreshAll() {
+        const refreshIcon = document.getElementById('refreshIcon');
+        refreshIcon.style.animation = 'spin 0.8s linear infinite';
+
+        document.getElementById('loading').classList.remove('hidden');
+        document.getElementById('newsContainer').classList.add('hidden');
+        feedResults = {};
+        allArticles = [];
+
+        const loadingDetail = document.getElementById('loadingDetail');
+        const feedKeys = Object.keys(FEEDS);
+        let completed = 0;
+
+        const promises = feedKeys.map(async (key) => {
+            const articles = await fetchFeed(key, FEEDS[key]);
+            completed++;
+            loadingDetail.textContent = `已完成 ${completed}/${feedKeys.length} 個來源...`;
+            return articles;
+        });
+
+        const results = await Promise.all(promises);
+        allArticles = results.flat();
+        allArticles.sort((a, b) => b.pubDate - a.pubDate);
+
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('newsContainer').classList.remove('hidden');
+        refreshIcon.style.animation = '';
+
+        updateStatusBar();
+        renderNews();
+    }
+
+    function updateStatusBar() {
+        const now = new Date();
+        const timeStr = now.toLocaleString('zh-TW', {
+            month: 'numeric', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+
+        document.getElementById('lastUpdate').textContent = `最後更新：${timeStr}`;
+
+        const statusEl = document.getElementById('feedStatus');
+        let badges = '';
+        Object.keys(feedResults).forEach(key => {
+            const result = feedResults[key];
+            const name = FEEDS[key].shortName;
+            if (result.success) {
+                badges += `<span class="success-badge inline-block px-2 py-0.5 rounded-full text-xs mb-1">${name} ✓${result.count}</span> `;
+            } else {
+                badges += `<span class="error-badge inline-block px-2 py-0.5 rounded-full text-xs mb-1">${name} ✗</span> `;
+            }
+        });
+        statusEl.innerHTML = `<div class="flex flex-wrap gap-1">${badges}</div>`;
+    }
+
+    // ===== Rendering =====
+    function renderNews() {
+        let articles = [];
+        let title = '';
+        let desc = '';
+        let groupByDay = false;
+
+        const now = new Date();
+        const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
+        const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+        switch (currentTab) {
+            case 'all':
+                articles = allArticles.filter(a => a.feedCategory === 'main');
+                title = '每日新聞';
+                desc = 'AIN · FlightGlobal · Simple Flying · The Air Current';
+                break;
+            case 'highlights':
+                const sourceCount = {};
+                articles = allArticles.filter(a => {
+                    if (a.feedCategory !== 'main') return false;
+                    if (a.pubDate < oneDayAgo) return false;
+                    const count = sourceCount[a.source] || 0;
+                    if (count >= 3) return false;
+                    sourceCount[a.source] = count + 1;
+                    return true;
+                });
+                if (articles.length === 0) {
+                    // Fallback: get top 3 from each source regardless of date
+                    const sc2 = {};
+                    articles = allArticles.filter(a => {
+                        if (a.feedCategory !== 'main') return false;
+                        const count = sc2[a.source] || 0;
+                        if (count >= 3) return false;
+                        sc2[a.source] = count + 1;
+                        return true;
+                    });
+                }
+                title = '今日重點';
+                desc = '各來源精選最新 3 篇報導';
+                break;
+            case 'weekly':
+                articles = allArticles.filter(a => a.pubDate >= sevenDaysAgo);
+                title = '一周大事';
+                desc = `過去 7 天所有來源的新聞與報告（共 ${articles.length} 篇）`;
+                groupByDay = true;
+                break;
+            case 'asiaPacific':
+                articles = allArticles.filter(a => a.isAsiaPacific);
+                title = '亞太區新聞';
+                desc = '自動篩選亞太地區相關航空新聞';
+                break;
+            case 'finance':
+                articles = allArticles.filter(a => a.feedCategory === 'finance');
+                title = '航空財經';
+                desc = 'Corporate Jet Investor · Business Aviation Advisor · CAPA';
+                break;
+        }
+
+        document.getElementById('sectionTitle').textContent = title;
+        document.getElementById('sectionDesc').textContent = desc;
+
+        const listEl = document.getElementById('newsList');
+        const emptyEl = document.getElementById('emptyState');
+
+        if (articles.length === 0) {
+            listEl.innerHTML = '';
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        emptyEl.classList.add('hidden');
+
+        if (groupByDay) {
+            listEl.innerHTML = renderGroupedByDay(articles);
+        } else {
+            listEl.innerHTML = articles.map((article, i) => renderArticleCard(article, i)).join('');
+        }
+    }
+
+    function renderGroupedByDay(articles) {
+        const groups = {};
+        const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+        articles.forEach(article => {
+            const dateKey = article.pubDate.toLocaleDateString('zh-TW', {
+                month: 'numeric', day: 'numeric'
+            });
+            const dayName = dayNames[article.pubDate.getDay()];
+            const key = `${dateKey} ${dayName}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(article);
+        });
+
+        let html = '';
+        let cardIndex = 0;
+
+        Object.entries(groups).forEach(([dayLabel, dayArticles]) => {
+            html += `
+                <div class="day-divider flex items-center justify-center my-5">
+                    <span class="day-label text-sm font-semibold text-gray-600 px-3">📅 ${dayLabel}（${dayArticles.length} 篇）</span>
+                </div>
+            `;
+            dayArticles.forEach(article => {
+                html += renderArticleCard(article, cardIndex++);
+            });
+        });
+
+        return html;
+    }
+
+    function renderArticleCard(article, index) {
+        const escapedLink = article.link.replace(/'/g, "\\'");
+        return `
+            <article class="news-card bg-white rounded-xl border border-gray-100 p-3.5 sm:p-4 cursor-pointer fade-in"
+                     style="animation-delay: ${Math.min(index * 20, 300)}ms"
+                     onclick="window.open('${escapedLink}', '_blank')">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span class="${article.sourceClass} text-xs px-2 py-0.5 rounded-full font-medium">
+                                ${article.shortName}
+                            </span>
+                            <span class="text-xs text-gray-400">
+                                ${formatTime(article.pubDate)}
+                            </span>
+                            ${article.isAsiaPacific && currentTab !== 'asiaPacific' ? '<span class="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded-full">🌏</span>' : ''}
+                        </div>
+                        <h3 class="text-sm sm:text-base font-semibold text-gray-800 leading-snug">
+                            ${article.title}
+                        </h3>
+                        ${article.description ? `<p class="text-xs sm:text-sm text-gray-500 mt-1.5 leading-relaxed line-clamp-2">${article.description.substring(0, 150)}${article.description.length > 150 ? '...' : ''}</p>` : ''}
+                        ${article.categories.length > 0 ? `
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                ${article.categories.slice(0, 3).map(c => `<span class="text-xs bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded">${c}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                    <svg class="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                    </svg>
+                </div>
+            </article>
+        `;
+    }
+
+    function formatTime(date) {
+        if (!date || isNaN(date.getTime())) return '時間不明';
+
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return '剛剛';
+        if (diffMins < 60) return `${diffMins} 分鐘前`;
+        if (diffHours < 24) return `${diffHours} 小時前`;
+        if (diffDays === 1) return '昨天';
+        if (diffDays < 7) return `${diffDays} 天前`;
+
+        return date.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' });
+    }
+
+    // ===== Tab Switching =====
+    function switchTab(tab) {
+        currentTab = tab;
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('tab-active');
+            btn.classList.add('text-gray-600');
+        });
+
+        const activeBtn = document.getElementById(`tab-${tab}`);
+        activeBtn.classList.add('tab-active');
+        activeBtn.classList.remove('text-gray-600');
+
+        renderNews();
+
+        // Scroll to top of content
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ===== Initialize =====
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshAll();
+    });
+    </script>
+</body>
+</html>
